@@ -129,33 +129,105 @@ $container->set('helper', function ($c) {
 
         public function make_posts(array $results, $options = []) {
             $options += ['all_comments' => false];
-            $all_comments = $options['all_comments'];
+            $all_comments = (bool)$options['all_comments'];
 
-            $posts = [];
+            if (count($results) === 0) {
+                return [];
+            }
+
+            $db = $this->db();
+
+            // 1) post owner を一括取得
+            $postUserIds = array_values(array_unique(array_map(fn($p) => (int)$p['user_id'], $results)));
+            $postUsers = [];
+            if (count($postUserIds) > 0) {
+                $ph = implode(',', array_fill(0, count($postUserIds), '?'));
+                $ps = $db->prepare("SELECT * FROM `users` WHERE `id` IN ($ph)");
+                $ps->execute($postUserIds);
+                foreach ($ps->fetchAll(PDO::FETCH_ASSOC) as $u) {
+                    $postUsers[(int)$u['id']] = $u;
+                }
+                $ps->closeCursor();
+            }
+
+            // 2) 旧挙動同様、results順で del_flg=0 の投稿だけ採用し、POSTS_PER_PAGE で打ち切り
+            $selectedPosts = [];
             foreach ($results as $post) {
-                $post['comment_count'] = $this->fetch_first('SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?', $post['id'])['count'];
-                $query = 'SELECT * FROM `comments` WHERE `post_id` = ? ORDER BY `created_at` DESC';
-                if (!$all_comments) {
-                    $query .= ' LIMIT 3';
-                }
-
-                $ps = $this->db()->prepare($query);
-                $ps->execute([$post['id']]);
-                $comments = $ps->fetchAll(PDO::FETCH_ASSOC);
-                foreach ($comments as &$comment) {
-                    $comment['user'] = $this->fetch_first('SELECT * FROM `users` WHERE `id` = ?', $comment['user_id']);
-                }
-                unset($comment);
-                $post['comments'] = array_reverse($comments);
-
-                $post['user'] = $this->fetch_first('SELECT * FROM `users` WHERE `id` = ?', $post['user_id']);
-                if ($post['user']['del_flg'] == 0) {
-                    $posts[] = $post;
-                }
-                if (count($posts) >= POSTS_PER_PAGE) {
-                    break;
+                $owner = $postUsers[(int)$post['user_id']] ?? null;
+                if ($owner !== null && (int)$owner['del_flg'] === 0) {
+                    $post['user'] = $owner;
+                    $selectedPosts[] = $post;
+                    if (count($selectedPosts) >= POSTS_PER_PAGE) {
+                        break;
+                    }
                 }
             }
+            if (count($selectedPosts) === 0) {
+                return [];
+            }
+
+            $postIds = array_map(fn($p) => (int)$p['id'], $selectedPosts);
+            $postPh = implode(',', array_fill(0, count($postIds), '?'));
+
+            // 3) comment_count 一括取得
+            $commentCounts = [];
+            $ps = $db->prepare("
+                SELECT `post_id`, COUNT(*) AS `count`
+                FROM `comments`
+                WHERE `post_id` IN ($postPh)
+                GROUP BY `post_id`
+            ");
+            $ps->execute($postIds);
+            foreach ($ps->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $commentCounts[(int)$row['post_id']] = (int)$row['count'];
+            }
+            $ps->closeCursor();
+
+            // 4) comments 一括取得（DESCで取得して、最後に reverse で旧挙動へ）
+            $ps = $db->prepare("
+                SELECT * FROM `comments`
+                WHERE `post_id` IN ($postPh)
+                ORDER BY `post_id` ASC, `created_at` DESC
+            ");
+            $ps->execute($postIds);
+            $fetchedComments = $ps->fetchAll(PDO::FETCH_ASSOC);
+            $ps->closeCursor();
+
+            // 5) comment user 一括取得
+            $commentUserIds = array_values(array_unique(array_map(fn($c) => (int)$c['user_id'], $fetchedComments)));
+            $commentUsers = [];
+            if (count($commentUserIds) > 0) {
+                $uph = implode(',', array_fill(0, count($commentUserIds), '?'));
+                $ps = $db->prepare("SELECT * FROM `users` WHERE `id` IN ($uph)");
+                $ps->execute($commentUserIds);
+                foreach ($ps->fetchAll(PDO::FETCH_ASSOC) as $u) {
+                    $commentUsers[(int)$u['id']] = $u;
+                }
+                $ps->closeCursor();
+            }
+
+            // 6) post_id ごとに comments を集約（DESC）
+            $commentsDescByPost = [];
+            foreach ($fetchedComments as $c) {
+                $pid = (int)$c['post_id'];
+                $c['user'] = $commentUsers[(int)$c['user_id']] ?? false; // 旧 fetch_first の false に寄せる
+                $commentsDescByPost[$pid][] = $c;
+            }
+
+            // 7) 組み立て（all_comments=false は最新3件、最後に reverse で昇順表示）
+            $posts = [];
+            foreach ($selectedPosts as $post) {
+                $pid = (int)$post['id'];
+                $desc = $commentsDescByPost[$pid] ?? [];
+                if (!$all_comments) {
+                    $desc = array_slice($desc, 0, 3);
+                }
+
+                $post['comment_count'] = $commentCounts[$pid] ?? 0;
+                $post['comments'] = array_reverse($desc);
+                $posts[] = $post;
+            }
+
             return $posts;
         }
 
