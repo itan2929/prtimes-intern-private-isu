@@ -8,14 +8,14 @@ services:
       - ./etc/nginx/conf.d:/etc/nginx/conf.d
       - ./public:/public
     ports:
-      - "80:80"
+      - "8080:80"
     networks:
       - my_network
 
   app:
     build:
       # Go実装は golang/ PHP実装は php/ Python実装は python/ Node.js実装は node/ に変更
-      context: ruby/
+      context: php/
       dockerfile: Dockerfile
     depends_on:
       - mysql
