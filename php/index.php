@@ -372,7 +372,8 @@ $app->get('/', function (Request $request, Response $response) {
         ORDER BY p.created_at DESC
         LIMIT ?
     ');
-    $ps->bindValue(1, POSTS_PER_PAGE, PDO::PARAM_INT);    $ps->execute();
+    $ps->bindValue(1, POSTS_PER_PAGE, PDO::PARAM_INT);
+    $ps->execute();
     $results = $ps->fetchAll(PDO::FETCH_ASSOC);
     $posts = $this->get('helper')->make_posts($results);
 
