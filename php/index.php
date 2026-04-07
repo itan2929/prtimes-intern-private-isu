@@ -39,7 +39,6 @@ session_start();
 $container = new Container();
 $container->set('settings', function() {
     return [
-        'public_folder' => dirname(dirname(__FILE__)) . '/public',
         'db' => [
             'host' => $_SERVER['ISUCONP_DB_HOST'] ?? 'localhost',
             'port' => $_SERVER['ISUCONP_DB_PORT'] ?? 3306,
