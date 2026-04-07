@@ -509,8 +509,16 @@ cd ../benchmarker
 確認は以下の手順で行った。
 
 ```sh
+# 既存の mysql volume を使う場合は index を手動適用する
+docker compose exec -T mysql mysql -uroot -proot isuconp < sql/indexes.sql
+
+# もしくは mysql volume を作り直して初期化時に反映する
+# docker compose down -v
+
 docker compose up -d --build app nginx
+sleep 2
 curl http://127.0.0.1:8080/initialize
+sleep 1
 cd ../benchmarker
 ./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
 ```
