@@ -1,3 +1,4 @@
+<?php if ($me !== null): ?>
 <div class="isu-submit">
   <form method="post" action="/" enctype="multipart/form-data">
     <div class="isu-form">
@@ -17,6 +18,7 @@
     <?php endif ?>
   </form>
 </div>
+<?php endif ?>
 
 <?php require __DIR__ . '/posts.php' ?>
 

@@ -590,7 +590,11 @@ $app->get('/logout', function (Request $request, Response $response) {
 
 $app->get('/', function (Request $request, Response $response) {
     $me = $this->get('helper')->get_session_user();
-    ensure_session_started();
+    $flash = null;
+    if ($me !== null || has_session_cookie()) {
+        ensure_session_started();
+        $flash = $this->get('flash')->getFirstMessage('notice');
+    }
 
     $db = $this->get('db');
     $ps = $db->prepare('
@@ -613,7 +617,7 @@ $app->get('/', function (Request $request, Response $response) {
     return $this->get('view')->render($response, 'index.php', [
         'posts' => $posts,
         'me' => $me,
-        'flash' => $this->get('flash')->getFirstMessage('notice'),
+        'flash' => $flash,
     ]);
 });
 
