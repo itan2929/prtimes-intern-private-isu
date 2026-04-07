@@ -2,11 +2,11 @@
   <h1>ログイン</h1>
 </div>
 
-<? if ($flash): ?>
+<?php if ($flash): ?>
 <div id="notice-message" class="alert alert-danger">
   <?= escape_html($flash) ?>
 </div>
-<? endif ?>
+<?php endif ?>
 
 <div class="submit">
   <form method="post" action="/login">

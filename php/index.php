@@ -11,7 +11,7 @@ $_SERVER += ['PATH_INFO' => $_SERVER['REQUEST_URI']];
 $_SERVER['SCRIPT_NAME'] = '/' . basename($_SERVER['SCRIPT_FILENAME']);
 $file = dirname(__DIR__) . '/public' . $_SERVER['REQUEST_URI'];
 if (is_file($file)) {
-    if (PHP_SAPI == 'cli-server') return false;
+    if (PHP_SAPI === 'cli-server') return false;
     $mimetype = [
         'js' => 'application/javascript',
         'css' => 'text/css',
@@ -40,7 +40,6 @@ session_start();
 $container = new Container();
 $container->set('settings', function() {
     return [
-        'public_folder' => dirname(dirname(__FILE__)) . '/public',
         'db' => [
             'host' => $_SERVER['ISUCONP_DB_HOST'] ?? 'localhost',
             'port' => $_SERVER['ISUCONP_DB_PORT'] ?? 3306,
@@ -108,13 +107,10 @@ $container->set('helper', function ($c) {
 
         public function try_login($account_name, $password) {
             $user = $this->fetch_first('SELECT * FROM users WHERE account_name = ? AND del_flg = 0', $account_name);
-            if ($user !== false && calculate_passhash($user['account_name'], $password) == $user['passhash']) {
+            if ($user !== false && calculate_passhash($user['account_name'], $password) === $user['passhash']) {
                 return $user;
-            } elseif ($user) {
-                return null;
-            } else {
-                return null;
             }
+            return null;
         }
 
         public function get_session_user() {
@@ -124,14 +120,14 @@ $container->set('helper', function ($c) {
 
             $user = $this->fetch_first('SELECT * FROM `users` WHERE `id` = ?', $_SESSION['user']['id']);
 
-            return $user ?: null;
+            return $user === false ? null : $user;
         }
 
         public function make_posts(array $results, $options = []) {
             $options += ['all_comments' => false];
             $all_comments = (bool)$options['all_comments'];
 
-            if (count($results) === 0) {
+            if (empty($results)) {
                 return [];
             }
 
@@ -162,7 +158,7 @@ $container->set('helper', function ($c) {
                     }
                 }
             }
-            if (count($selectedPosts) === 0) {
+            if (empty($selectedPosts)) {
                 return [];
             }
 
@@ -251,19 +247,17 @@ function image_url($post) {
     $ext = '';
     if ($post['mime'] === 'image/jpeg') {
         $ext = '.jpg';
-    } else if ($post['mime'] === 'image/png') {
+    } elseif ($post['mime'] === 'image/png') {
         $ext = '.png';
-    } else if ($post['mime'] === 'image/gif') {
+    } elseif ($post['mime'] === 'image/gif') {
         $ext = '.gif';
     }
     return "/image/{$post['id']}{$ext}";
 }
 
 function validate_user($account_name, $password) {
-    if (!(preg_match('/\A[0-9a-zA-Z_]{3,}\z/', $account_name) && preg_match('/\A[0-9a-zA-Z_]{6,}\z/', $password))) {
-        return false;
-    }
-    return true;
+    return preg_match('/\A[0-9a-zA-Z_]{3,}\z/', $account_name)
+        && preg_match('/\A[0-9a-zA-Z_]{6,}\z/', $password);
 }
 
 function digest($src) {
@@ -301,7 +295,6 @@ $app->post('/login', function (Request $request, Response $response) {
         return redirect($response, '/', 302);
     }
 
-    $db = $this->get('db');
     $params = $request->getParsedBody();
     $user = $this->get('helper')->try_login($params['account_name'], $params['password']);
 
@@ -311,10 +304,10 @@ $app->post('/login', function (Request $request, Response $response) {
         ];
         $_SESSION['csrf_token'] = bin2hex(random_bytes(16));
         return redirect($response, '/', 302);
-    } else {
-        $this->get('flash')->addMessage('notice', 'アカウント名かパスワードが間違っています');
-        return redirect($response, '/login', 302);
     }
+
+    $this->get('flash')->addMessage('notice', 'アカウント名かパスワードが間違っています');
+    return redirect($response, '/login', 302);
 });
 
 $app->get('/register', function (Request $request, Response $response) {
@@ -327,9 +320,8 @@ $app->get('/register', function (Request $request, Response $response) {
     ]);
 });
 
-
 $app->post('/register', function (Request $request, Response $response) {
-    if ($this->get('helper')->get_session_user()) {
+    if ($this->get('helper')->get_session_user() !== null) {
         return redirect($response, '/', 302);
     }
 
@@ -337,8 +329,7 @@ $app->post('/register', function (Request $request, Response $response) {
     $account_name = $params['account_name'];
     $password = $params['password'];
 
-    $validated = validate_user($account_name, $password);
-    if (!$validated) {
+    if (!validate_user($account_name, $password)) {
         $this->get('flash')->addMessage('notice', 'アカウント名は3文字以上、パスワードは6文字以上である必要があります');
         return redirect($response, '/register', 302);
     }
@@ -380,7 +371,8 @@ $app->get('/', function (Request $request, Response $response) {
         ORDER BY p.created_at DESC
         LIMIT ?
     ');
-    $ps->bindValue(1, POSTS_PER_PAGE, PDO::PARAM_INT);    $ps->execute();
+    $ps->bindValue(1, POSTS_PER_PAGE, PDO::PARAM_INT);
+    $ps->execute();
     $results = $ps->fetchAll(PDO::FETCH_ASSOC);
     $posts = $this->get('helper')->make_posts($results);
 
@@ -419,7 +411,7 @@ $app->get('/posts/{id}', function (Request $request, Response $response, $args) 
     $results = $ps->fetchAll(PDO::FETCH_ASSOC);
     $posts = $this->get('helper')->make_posts($results, ['all_comments' => true]);
 
-    if (count($posts) == 0) {
+    if (empty($posts)) {
         $response->getBody()->write('404');
         return $response->withStatus(404);
     }
@@ -444,40 +436,40 @@ $app->post('/', function (Request $request, Response $response) {
         return $response->withStatus(422);
     }
 
-    if ($_FILES['file']) {
-        $mime = '';
-        // 投稿のContent-Typeからファイルのタイプを決定する
-        if (strpos($_FILES['file']['type'], 'jpeg') !== false) {
-            $mime = 'image/jpeg';
-        } elseif (strpos($_FILES['file']['type'], 'png') !== false) {
-            $mime = 'image/png';
-        } elseif (strpos($_FILES['file']['type'], 'gif') !== false) {
-            $mime = 'image/gif';
-        } else {
-            $this->get('flash')->addMessage('notice', '投稿できる画像形式はjpgとpngとgifだけです');
-            return redirect($response, '/', 302);
-        }
-
-        if (strlen(file_get_contents($_FILES['file']['tmp_name'])) > UPLOAD_LIMIT) {
-            $this->get('flash')->addMessage('notice', 'ファイルサイズが大きすぎます');
-            return redirect($response, '/', 302);
-        }
-
-        $db = $this->get('db');
-        $query = 'INSERT INTO `posts` (`user_id`, `mime`, `imgdata`, `body`) VALUES (?,?,?,?)';
-        $ps = $db->prepare($query);
-        $ps->execute([
-          $me['id'],
-          $mime,
-          file_get_contents($_FILES['file']['tmp_name']),
-          $params['body'],
-        ]);
-        $pid = $db->lastInsertId();
-        return redirect($response, "/posts/{$pid}", 302);
-    } else {
+    if (!$_FILES['file']) {
         $this->get('flash')->addMessage('notice', '画像が必須です');
         return redirect($response, '/', 302);
     }
+
+    $mime = '';
+    // 投稿のContent-Typeからファイルのタイプを決定する
+    if (strpos($_FILES['file']['type'], 'jpeg') !== false) {
+        $mime = 'image/jpeg';
+    } elseif (strpos($_FILES['file']['type'], 'png') !== false) {
+        $mime = 'image/png';
+    } elseif (strpos($_FILES['file']['type'], 'gif') !== false) {
+        $mime = 'image/gif';
+    } else {
+        $this->get('flash')->addMessage('notice', '投稿できる画像形式はjpgとpngとgifだけです');
+        return redirect($response, '/', 302);
+    }
+
+    if (strlen(file_get_contents($_FILES['file']['tmp_name'])) > UPLOAD_LIMIT) {
+        $this->get('flash')->addMessage('notice', 'ファイルサイズが大きすぎます');
+        return redirect($response, '/', 302);
+    }
+
+    $db = $this->get('db');
+    $query = 'INSERT INTO `posts` (`user_id`, `mime`, `imgdata`, `body`) VALUES (?,?,?,?)';
+    $ps = $db->prepare($query);
+    $ps->execute([
+      $me['id'],
+      $mime,
+      file_get_contents($_FILES['file']['tmp_name']),
+      $params['body'],
+    ]);
+    $pid = $db->lastInsertId();
+    return redirect($response, "/posts/{$pid}", 302);
 });
 
 $app->get('/image/{id}.{ext}', function (Request $request, Response $response, $args) {
@@ -487,9 +479,9 @@ $app->get('/image/{id}.{ext}', function (Request $request, Response $response, $
 
     $post = $this->get('helper')->fetch_first('SELECT * FROM `posts` WHERE `id` = ?', $args['id']);
 
-    if (($args['ext'] == 'jpg' && $post['mime'] == 'image/jpeg') ||
-        ($args['ext'] == 'png' && $post['mime'] == 'image/png') ||
-        ($args['ext'] == 'gif' && $post['mime'] == 'image/gif')) {
+    if (($args['ext'] === 'jpg' && $post['mime'] === 'image/jpeg') ||
+        ($args['ext'] === 'png' && $post['mime'] === 'image/png') ||
+        ($args['ext'] === 'gif' && $post['mime'] === 'image/gif')) {
         $response->getBody()->write($post['imgdata']);
         return $response->withHeader('Content-Type', $post['mime']);
     }
