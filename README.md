@@ -408,3 +408,31 @@ cd ../benchmarker
 
 この変更では benchmarker を 3 回実施して比較し、
 最高スコアは `14837` を確認した。
+
+### 15. guest の単票ページで session を開かない (perf/guest-post-without-session)
+
+`GET /posts/{id}` では、
+guest でもコメントフォームを描画していたため、
+CSRF hidden input のためだけに session を開始していた。
+
+この処理を以下のように変更した。
+
+- `post.php` のコメントフォームをログイン時のみ表示するよう変更
+- `GET /posts/{id}` では guest 表示時に session を開始しないよう変更
+
+これにより、
+guest の単票ページ表示で不要な memcached session I/O と `Set-Cookie` 発行を減らした。
+
+確認は以下の手順で行った。
+
+```sh
+php -l php/index.php
+php -l php/views/post.php
+docker compose up -d --build app nginx
+curl http://127.0.0.1:8080/initialize
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更では benchmarker を 3 回実施して比較し、
+最高スコアは `15782` を確認した。
