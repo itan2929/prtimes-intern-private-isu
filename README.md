@@ -436,3 +436,32 @@ cd ../benchmarker
 
 この変更では benchmarker を 3 回実施して比較し、
 最高スコアは `15782` を確認した。
+
+### 16. guest のトップページで session を開かない (perf/guest-root-without-session)
+
+トップページ `/` では、
+未ログイン時でも投稿フォームと CSRF hidden input を描画していたため、
+guest 表示でも session を開始していた。
+
+この処理を以下のように変更した。
+
+- `GET /` では login 済み、または session cookie がある場合だけ session を開始
+- 未ログイン時は `flash` を読まずに描画するよう変更
+- `index.php` の投稿フォームをログイン時のみ表示するよう変更
+
+これにより、
+guest のトップページ表示で不要な memcached session I/O と `Set-Cookie` 発行を減らした。
+
+確認は以下の手順で行った。
+
+```sh
+php -l php/index.php
+php -l php/views/index.php
+docker compose up -d --build app nginx
+curl http://127.0.0.1:8080/initialize
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更では benchmarker を 3 回実施して比較し、
+最高スコアは `15745` を確認した。
