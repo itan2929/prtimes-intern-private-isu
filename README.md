@@ -276,3 +276,37 @@ cd ../benchmarker
 
 この変更により benchmarker は `pass: true` を維持しつつ、
 スコアは `13412` から `14361` へ改善した。
+
+### 11. ユーザーページ集計の簡略化と画像キャッシュ保存の安定化 (perf/user-page-path)
+
+ユーザーページ `/@account_name` では、
+投稿一覧自体は `LIMIT` 付きで取得している一方で、
+投稿数や被コメント数の集計のために
+全投稿 ID を一度取り出してから PHP 側で組み立てる処理が残っていた。
+
+また、画像キャッシュ保存は単純な `file_put_contents()` だったため、
+同時アクセス時に書き込み途中のファイルを読まれるリスクがあった。
+
+この処理を以下のように変更した。
+
+- `post_count` を `COUNT(*) FROM posts WHERE user_id = ?` に変更
+- `commented_count` を `comments JOIN posts` の集計クエリに変更
+- `comment_count` も明示的に整数化
+- 画像キャッシュ保存を一時ファイル経由の atomic rename に変更
+
+これにより、
+ユーザーページ集計時の全投稿 ID 取得と `IN (...)` 構築を削減しつつ、
+画像キャッシュの整合性も改善した。
+
+確認は以下の手順で行った。
+
+```sh
+php -l php/index.php
+docker compose up -d --build app nginx
+curl http://127.0.0.1:8080/initialize
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更では benchmarker を 3 回実施して比較し、
+最高スコアは `14530` を確認した。
