@@ -343,3 +343,38 @@ cd ../benchmarker
 
 この変更では benchmarker を 3 回実施して比較し、
 最高スコアは `14010` を確認した。
+
+### 13. タイムラインの投稿ユーザー再利用 (perf/lean-post-users)
+
+`make_posts()` では投稿一覧を組み立てるたびに、
+post owner を `users` テーブルへ取り直していた。
+
+しかし `/` と `/posts` では、
+一覧取得時点で `users` と JOIN しており、
+owner 情報の一部はすでに結果セットに含まれていた。
+また `/@account_name` では、
+ページ対象のユーザー情報をすでに取得済みだった。
+
+この処理を以下のように変更した。
+
+- `/` と `/posts` の投稿取得で必要な user 情報を一緒に取得
+- `make_posts()` では JOIN 済みの owner 情報を優先的に再利用
+- `/@account_name` では既知の profile user を各 post にそのまま適用
+- post owner / comment user の一括取得は `SELECT *` ではなく必要列だけに限定
+
+これにより、
+タイムライン組み立て時の無駄な user 再取得を減らしつつ、
+`users` から読む payload も少し削減した。
+
+確認は以下の手順で行った。
+
+```sh
+php -l php/index.php
+docker compose up -d --build app nginx
+curl http://127.0.0.1:8080/initialize
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更では benchmarker を 3 回実施して比較し、
+最高スコアは `14440` を確認した。

@@ -265,8 +265,18 @@ $container->set('helper', function ($c) {
         }
 
         public function make_posts(array $results, $options = []) {
-            $options += ['all_comments' => false];
+            $options += ['all_comments' => false, 'default_post_user' => null];
             $all_comments = (bool)$options['all_comments'];
+            $default_post_user = $options['default_post_user'];
+            if ($default_post_user !== null) {
+                $default_post_user = [
+                    'id' => isset($default_post_user['id']) ? (int)$default_post_user['id'] : null,
+                    'account_name' => $default_post_user['account_name'] ?? null,
+                    'authority' => $default_post_user['authority'] ?? null,
+                    'del_flg' => $default_post_user['del_flg'] ?? null,
+                    'created_at' => $default_post_user['created_at'] ?? null,
+                ];
+            }
 
             if (empty($results)) {
                 return [];
@@ -274,12 +284,35 @@ $container->set('helper', function ($c) {
 
             $db = $this->db();
 
-            // 1) post owner を一括取得
-            $postUserIds = array_values(array_unique(array_map(fn($p) => (int)$p['user_id'], $results)));
             $postUsers = [];
-            if (count($postUserIds) > 0) {
+            $postUserIds = [];
+            foreach ($results as $post) {
+                if ($default_post_user !== null) {
+                    continue;
+                }
+
+                if (isset($post['user_account_name'])) {
+                    $postUsers[(int)$post['user_id']] = [
+                        'id' => (int)$post['user_id'],
+                        'account_name' => $post['user_account_name'],
+                        'authority' => $post['user_authority'],
+                        'del_flg' => $post['user_del_flg'],
+                        'created_at' => $post['user_created_at'],
+                    ];
+                    continue;
+                }
+
+                $postUserIds[] = (int)$post['user_id'];
+            }
+
+            $postUserIds = array_values(array_unique($postUserIds));
+            if (!empty($postUserIds)) {
                 $ph = implode(',', array_fill(0, count($postUserIds), '?'));
-                $ps = $db->prepare("SELECT * FROM `users` WHERE `id` IN ($ph)");
+                $ps = $db->prepare("
+                    SELECT `id`, `account_name`, `authority`, `del_flg`, `created_at`
+                    FROM `users`
+                    WHERE `id` IN ($ph)
+                ");
                 $ps->execute($postUserIds);
                 foreach ($ps->fetchAll(PDO::FETCH_ASSOC) as $u) {
                     $postUsers[(int)$u['id']] = $u;
@@ -290,9 +323,15 @@ $container->set('helper', function ($c) {
             // 2) 旧挙動同様、results順で del_flg=0 の投稿だけ採用し、POSTS_PER_PAGE で打ち切り
             $selectedPosts = [];
             foreach ($results as $post) {
-                $owner = $postUsers[(int)$post['user_id']] ?? null;
+                $owner = $default_post_user ?? ($postUsers[(int)$post['user_id']] ?? null);
                 if ($owner !== null && (int)$owner['del_flg'] === 0) {
                     $post['user'] = $owner;
+                    unset(
+                        $post['user_account_name'],
+                        $post['user_authority'],
+                        $post['user_del_flg'],
+                        $post['user_created_at']
+                    );
                     $selectedPosts[] = $post;
                     if (count($selectedPosts) >= POSTS_PER_PAGE) {
                         break;
@@ -356,7 +395,11 @@ $container->set('helper', function ($c) {
             $commentUsers = [];
             if (count($commentUserIds) > 0) {
                 $uph = implode(',', array_fill(0, count($commentUserIds), '?'));
-                $ps = $db->prepare("SELECT * FROM `users` WHERE `id` IN ($uph)");
+                $ps = $db->prepare("
+                    SELECT `id`, `account_name`, `authority`, `del_flg`, `created_at`
+                    FROM `users`
+                    WHERE `id` IN ($uph)
+                ");
                 $ps->execute($commentUserIds);
                 foreach ($ps->fetchAll(PDO::FETCH_ASSOC) as $u) {
                     $commentUsers[(int)$u['id']] = $u;
@@ -525,7 +568,11 @@ $app->get('/', function (Request $request, Response $response) {
 
     $db = $this->get('db');
     $ps = $db->prepare('
-        SELECT p.id, p.user_id, p.body, p.mime, p.created_at
+        SELECT p.id, p.user_id, p.body, p.mime, p.created_at,
+               u.account_name AS user_account_name,
+               u.authority AS user_authority,
+               u.del_flg AS user_del_flg,
+               u.created_at AS user_created_at
         FROM posts p
         INNER JOIN users u ON u.id = p.user_id
         WHERE u.del_flg = 0
@@ -549,7 +596,11 @@ $app->get('/posts', function (Request $request, Response $response) {
     $max_created_at = $params['max_created_at'] ?? null;
     $db = $this->get('db');
     $ps = $db->prepare('
-        SELECT p.id, p.user_id, p.body, p.mime, p.created_at
+        SELECT p.id, p.user_id, p.body, p.mime, p.created_at,
+               u.account_name AS user_account_name,
+               u.authority AS user_authority,
+               u.del_flg AS user_del_flg,
+               u.created_at AS user_created_at
         FROM posts p
         INNER JOIN users u ON u.id = p.user_id
         WHERE p.created_at <= ? AND u.del_flg = 0
@@ -832,7 +883,7 @@ $app->get('/@{account_name}', function (Request $request, Response $response, $a
     $ps = $db->prepare('SELECT `id`, `user_id`, `body`, `created_at`, `mime` FROM `posts` WHERE `user_id` = ? ORDER BY `created_at` DESC LIMIT ' . POSTS_PER_PAGE);
     $ps->execute([$user['id']]);
     $results = $ps->fetchAll(PDO::FETCH_ASSOC);
-    $posts = $this->get('helper')->make_posts($results);
+    $posts = $this->get('helper')->make_posts($results, ['default_post_user' => $user]);
 
     $comment_count = (int)$this->get('helper')->fetch_first(
         'SELECT COUNT(*) AS count FROM `comments` WHERE `user_id` = ?',
