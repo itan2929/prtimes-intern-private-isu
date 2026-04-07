@@ -119,7 +119,7 @@ $container->set('helper', function ($c) {
 
             $user = $this->fetch_first('SELECT * FROM `users` WHERE `id` = ?', $_SESSION['user']['id']);
 
-            return $user ?: null;
+            return $user === false ? null : $user;
         }
 
         public function make_posts(array $results, $options = []) {
