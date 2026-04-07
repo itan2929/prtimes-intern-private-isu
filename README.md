@@ -465,3 +465,30 @@ cd ../benchmarker
 
 この変更では benchmarker を 3 回実施して比較し、
 最高スコアは `15745` を確認した。
+
+### 17. guest のユーザーページで session を開かない (perf/guest-user-page-without-session)
+
+ユーザーページ `/@account_name` では、
+guest でも `get_session_user()` を呼んでいたため、
+session cookie がないアクセスでも session 判定のための処理が走っていた。
+
+この処理を以下のように変更した。
+
+- `GET /@account_name` では session cookie がある場合だけ `get_session_user()` を呼ぶよう変更
+
+これにより、
+guest のユーザーページ表示で不要な session 処理を減らした。
+
+確認は以下の手順で行った。
+
+```sh
+php -l php/index.php
+docker compose up -d --build app nginx
+curl http://127.0.0.1:8080/initialize
+curl -I http://127.0.0.1:8080/@mary
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更では benchmarker を 3 回実施して比較し、
+最高スコアは `15703` を確認した。
