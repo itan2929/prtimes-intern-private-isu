@@ -714,6 +714,7 @@ $app->get('/posts/{id}', function (Request $request, Response $response, $args) 
     $ps->closeCursor();
 
     $me = $this->get('helper')->get_session_user();
+    ensure_session_started();
 
     return $this->get('view')->render($response, 'post.php', ['post' => $post, 'me' => $me]);
 });
