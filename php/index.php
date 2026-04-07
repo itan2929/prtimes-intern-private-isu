@@ -126,7 +126,7 @@ $container->set('helper', function ($c) {
             $options += ['all_comments' => false];
             $all_comments = (bool)$options['all_comments'];
 
-            if (count($results) === 0) {
+            if (empty($results)) {
                 return [];
             }
 
@@ -157,7 +157,7 @@ $container->set('helper', function ($c) {
                     }
                 }
             }
-            if (count($selectedPosts) === 0) {
+            if (empty($selectedPosts)) {
                 return [];
             }
 
@@ -412,7 +412,7 @@ $app->get('/posts/{id}', function (Request $request, Response $response, $args) 
     $results = $ps->fetchAll(PDO::FETCH_ASSOC);
     $posts = $this->get('helper')->make_posts($results, ['all_comments' => true]);
 
-    if (count($posts) == 0) {
+    if (empty($posts)) {
         $response->getBody()->write('404');
         return $response->withStatus(404);
     }
