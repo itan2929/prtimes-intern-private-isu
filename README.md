@@ -216,3 +216,33 @@ cd ../benchmarker
 
 この変更により benchmarker は `pass: true` を維持しつつ、
 スコアは `12500` から `12931` へ改善した。
+
+### 9. 一覧表示のコメント取得を最新3件に制限 (perf/limit-post-comments)
+
+投稿一覧系では、
+各投稿についてコメントを全件取得した後に
+PHP 側で `array_slice(..., 0, 3)` を使って表示件数を削っていた。
+
+この処理を以下のように変更した。
+
+- 一覧表示 (`all_comments = false`) の場合のみ、
+  MySQL 8 の `ROW_NUMBER()` を使って各投稿ごとの最新3件だけを取得
+- 単票表示 (`/posts/{id}`) では従来どおり全件取得を維持
+- これにより PHP 側の `array_slice(..., 0, 3)` を不要化
+
+もともとコメント数は別クエリで集計しているため、
+一覧で必要なのは「表示用の最新3件」だけである。
+そのため SQL 側で最初から絞るほうが無駄が少ない。
+
+確認は以下の手順で行った。
+
+```sh
+php -l php/index.php
+docker compose up -d --build app nginx
+curl http://127.0.0.1:8080/initialize
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更により benchmarker は `pass: true` を維持しつつ、
+スコアは `12931` から `13412` へ改善した。
