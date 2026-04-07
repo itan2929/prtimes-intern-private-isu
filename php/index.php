@@ -329,8 +329,7 @@ $app->post('/register', function (Request $request, Response $response) {
     $account_name = $params['account_name'];
     $password = $params['password'];
 
-    $validated = validate_user($account_name, $password);
-    if (!$validated) {
+    if (!validate_user($account_name, $password)) {
         $this->get('flash')->addMessage('notice', 'アカウント名は3文字以上、パスワードは6文字以上である必要があります');
         return redirect($response, '/register', 302);
     }
