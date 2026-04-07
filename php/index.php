@@ -268,6 +268,15 @@ $container->set('helper', function ($c) {
             $options += ['all_comments' => false, 'default_post_user' => null];
             $all_comments = (bool)$options['all_comments'];
             $default_post_user = $options['default_post_user'];
+            if ($default_post_user !== null) {
+                $default_post_user = [
+                    'id' => isset($default_post_user['id']) ? (int)$default_post_user['id'] : null,
+                    'account_name' => $default_post_user['account_name'] ?? null,
+                    'authority' => $default_post_user['authority'] ?? null,
+                    'del_flg' => $default_post_user['del_flg'] ?? null,
+                    'created_at' => $default_post_user['created_at'] ?? null,
+                ];
+            }
 
             if (empty($results)) {
                 return [];
