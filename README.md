@@ -492,3 +492,28 @@ cd ../benchmarker
 
 この変更では benchmarker を 3 回実施して比較し、
 最高スコアは `15703` を確認した。
+
+### 18. comments の user_id 集計を index 化 (perf/comments-user-index)
+
+ユーザーページ `/@account_name` では、
+コメント数の集計に `SELECT COUNT(*) FROM comments WHERE user_id = ?` を使っており、
+`comments` テーブルを広く scan していた。
+
+この処理を以下のように変更した。
+
+- `comments(user_id)` の index `idx_comments_user` を追加
+
+これにより、
+ユーザーページのコメント数集計が `user_id` 条件で index を使って走るようになった。
+
+確認は以下の手順で行った。
+
+```sh
+docker compose up -d --build app nginx
+curl http://127.0.0.1:8080/initialize
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更では benchmarker を 3 回実施して比較し、
+最高スコアは `15799` を確認した。
