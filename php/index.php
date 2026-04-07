@@ -480,9 +480,9 @@ $app->get('/image/{id}.{ext}', function (Request $request, Response $response, $
 
     $post = $this->get('helper')->fetch_first('SELECT * FROM `posts` WHERE `id` = ?', $args['id']);
 
-    if (($args['ext'] == 'jpg' && $post['mime'] == 'image/jpeg') ||
-        ($args['ext'] == 'png' && $post['mime'] == 'image/png') ||
-        ($args['ext'] == 'gif' && $post['mime'] == 'image/gif')) {
+    if (($args['ext'] === 'jpg' && $post['mime'] === 'image/jpeg') ||
+        ($args['ext'] === 'png' && $post['mime'] === 'image/png') ||
+        ($args['ext'] === 'gif' && $post['mime'] === 'image/gif')) {
         $response->getBody()->write($post['imgdata']);
         return $response->withHeader('Content-Type', $post['mime']);
     }
