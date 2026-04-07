@@ -223,7 +223,7 @@ $container->set('helper', function ($c) {
                 ? "
                     SELECT * FROM `comments`
                     WHERE `post_id` IN ($postPh)
-                    ORDER BY `post_id` ASC, `created_at` DESC
+                    ORDER BY `post_id` ASC, `created_at` DESC, `id` DESC
                 "
                 : "
                     SELECT `id`, `post_id`, `user_id`, `comment`, `created_at`
