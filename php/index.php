@@ -134,8 +134,21 @@ $container->set('helper', function ($c) {
             $dir = $this->ensure_image_dir();
             $path = $this->image_path($post_id, $mime);
             $tmp = tempnam($dir, 'img-');
-            file_put_contents($tmp, $imgdata);
-            rename($tmp, $path);
+            if ($tmp === false) {
+                return;
+            }
+
+            $written = file_put_contents($tmp, $imgdata);
+            if ($written === false || $written !== strlen($imgdata)) {
+                if (is_file($tmp)) {
+                    unlink($tmp);
+                }
+                return;
+            }
+
+            if (!rename($tmp, $path) && is_file($tmp)) {
+                unlink($tmp);
+            }
         }
 
         public function fetch_first($query, ...$params) {
