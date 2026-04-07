@@ -378,3 +378,33 @@ cd ../benchmarker
 
 この変更では benchmarker を 3 回実施して比較し、
 最高スコアは `14440` を確認した。
+
+### 14. PHP セッションの lazy start (perf/lazy-php-session)
+
+これまではアプリケーション起動時に `session_start()` を行っていたため、
+ログインしていないユーザーの `GET /image` や `GET /posts` でも
+毎回 session を開いていた。
+
+この処理を以下のように変更した。
+
+- グローバルな `session_start()` を廃止
+- session が必要なときだけ `ensure_session_started()` で開始するよう変更
+- session cookie を持たない guest の `get_session_user()` では session を開かずに `null` を返すよう変更
+- `GET /image` と `GET /posts` は guest アクセス時に session を開かないまま応答するよう変更
+- flash を使う `GET /` や login/register のメッセージ処理では従来どおり session を開始
+
+これにより、
+公開 GET リクエストで不要な memcached session I/O と `Set-Cookie` 発行を減らした。
+
+確認は以下の手順で行った。
+
+```sh
+php -l php/index.php
+docker compose up -d --build app nginx
+curl http://127.0.0.1:8080/initialize
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更では benchmarker を 3 回実施して比較し、
+最高スコアは `14837` を確認した。
