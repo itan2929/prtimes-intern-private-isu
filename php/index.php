@@ -928,7 +928,7 @@ $app->get('/@{account_name}', function (Request $request, Response $response, $a
         $user['id']
     )['count'];
 
-    $me = $this->get('helper')->get_session_user();
+    $me = has_session_cookie() ? $this->get('helper')->get_session_user() : null;
 
     return $this->get('view')->render($response, 'user.php', ['posts' => $posts, 'user' => $user, 'post_count' => $post_count, 'comment_count' => $comment_count, 'commented_count'=> $commented_count, 'me' => $me]);
 });
