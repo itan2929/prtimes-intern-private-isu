@@ -183,3 +183,36 @@ cd ../benchmarker
 今後スコアをさらに伸ばすには、
 画像配信や投稿処理、コメント取得など
 I/O コストの大きい処理を中心に改善する必要がある。
+
+### 8. 画像レスポンスのローカルディスクキャッシュ (perf/filesystem-images)
+
+`/image/{id}.{ext}` では、
+リクエストのたびに `posts.imgdata` を DB から読み出して画像を返していた。
+
+この処理を以下のように変更した。
+
+- 画像キャッシュ保存先として `/tmp/isuconp-image` を利用
+- `POST /` のアップロード時に DB 保存と同時にキャッシュファイルも保存
+- `GET /image/{id}.{ext}` では、まずローカルキャッシュを参照
+- キャッシュがなければ DB から 1 回だけ読み出してキャッシュを生成
+- `/initialize` では全件 export を行わず、キャッシュ削除のみに変更
+- アップロード時の `file_get_contents()` 二重読みを解消
+
+最初は nginx から直接配信できるよう
+共有 `public/` 配下へ画像を書き出す方式も試したが、
+Docker Compose 構成との整合や初期化時の全件 export コストが悪く、
+今回は PHP コンテナ内で完結するローカルキャッシュ方式に切り替えた。
+
+確認は以下の手順で行った。
+
+```sh
+php -l php/index.php
+docker compose up -d --build app nginx
+curl http://127.0.0.1:8080/initialize
+docker compose exec -T app sh -lc 'ls -ld /tmp/isuconp-image && find /tmp/isuconp-image -maxdepth 1 -type f | head'
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更により benchmarker は `pass: true` を維持しつつ、
+スコアは `12500` から `12931` へ改善した。
