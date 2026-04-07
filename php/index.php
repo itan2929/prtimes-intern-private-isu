@@ -437,40 +437,40 @@ $app->post('/', function (Request $request, Response $response) {
         return $response->withStatus(422);
     }
 
-    if ($_FILES['file']) {
-        $mime = '';
-        // 投稿のContent-Typeからファイルのタイプを決定する
-        if (strpos($_FILES['file']['type'], 'jpeg') !== false) {
-            $mime = 'image/jpeg';
-        } elseif (strpos($_FILES['file']['type'], 'png') !== false) {
-            $mime = 'image/png';
-        } elseif (strpos($_FILES['file']['type'], 'gif') !== false) {
-            $mime = 'image/gif';
-        } else {
-            $this->get('flash')->addMessage('notice', '投稿できる画像形式はjpgとpngとgifだけです');
-            return redirect($response, '/', 302);
-        }
-
-        if (strlen(file_get_contents($_FILES['file']['tmp_name'])) > UPLOAD_LIMIT) {
-            $this->get('flash')->addMessage('notice', 'ファイルサイズが大きすぎます');
-            return redirect($response, '/', 302);
-        }
-
-        $db = $this->get('db');
-        $query = 'INSERT INTO `posts` (`user_id`, `mime`, `imgdata`, `body`) VALUES (?,?,?,?)';
-        $ps = $db->prepare($query);
-        $ps->execute([
-          $me['id'],
-          $mime,
-          file_get_contents($_FILES['file']['tmp_name']),
-          $params['body'],
-        ]);
-        $pid = $db->lastInsertId();
-        return redirect($response, "/posts/{$pid}", 302);
-    } else {
+    if (!$_FILES['file']) {
         $this->get('flash')->addMessage('notice', '画像が必須です');
         return redirect($response, '/', 302);
     }
+
+    $mime = '';
+    // 投稿のContent-Typeからファイルのタイプを決定する
+    if (strpos($_FILES['file']['type'], 'jpeg') !== false) {
+        $mime = 'image/jpeg';
+    } elseif (strpos($_FILES['file']['type'], 'png') !== false) {
+        $mime = 'image/png';
+    } elseif (strpos($_FILES['file']['type'], 'gif') !== false) {
+        $mime = 'image/gif';
+    } else {
+        $this->get('flash')->addMessage('notice', '投稿できる画像形式はjpgとpngとgifだけです');
+        return redirect($response, '/', 302);
+    }
+
+    if (strlen(file_get_contents($_FILES['file']['tmp_name'])) > UPLOAD_LIMIT) {
+        $this->get('flash')->addMessage('notice', 'ファイルサイズが大きすぎます');
+        return redirect($response, '/', 302);
+    }
+
+    $db = $this->get('db');
+    $query = 'INSERT INTO `posts` (`user_id`, `mime`, `imgdata`, `body`) VALUES (?,?,?,?)';
+    $ps = $db->prepare($query);
+    $ps->execute([
+      $me['id'],
+      $mime,
+      file_get_contents($_FILES['file']['tmp_name']),
+      $params['body'],
+    ]);
+    $pid = $db->lastInsertId();
+    return redirect($response, "/posts/{$pid}", 302);
 });
 
 $app->get('/image/{id}.{ext}', function (Request $request, Response $response, $args) {
