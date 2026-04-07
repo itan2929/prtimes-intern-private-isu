@@ -10,7 +10,7 @@ $_SERVER += ['PATH_INFO' => $_SERVER['REQUEST_URI']];
 $_SERVER['SCRIPT_NAME'] = '/' . basename($_SERVER['SCRIPT_FILENAME']);
 $file = dirname(__DIR__) . '/public' . $_SERVER['REQUEST_URI'];
 if (is_file($file)) {
-    if (PHP_SAPI == 'cli-server') return false;
+    if (PHP_SAPI === 'cli-server') return false;
     $mimetype = [
         'js' => 'application/javascript',
         'css' => 'text/css',
