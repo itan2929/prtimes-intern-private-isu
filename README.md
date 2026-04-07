@@ -246,3 +246,33 @@ cd ../benchmarker
 
 この変更により benchmarker は `pass: true` を維持しつつ、
 スコアは `12931` から `13412` へ改善した。
+
+### 10. 単票表示 `/posts/{id}` の取得処理を専用化 (perf/single-post-path)
+
+単票表示 `/posts/{id}` では、
+投稿 1 件だけを表示するにもかかわらず
+一覧用の `make_posts()` を経由してデータを組み立てていた。
+
+この処理を以下のように変更した。
+
+- 投稿本体を `posts` と `users` の JOIN で直接取得
+- コメント数を専用クエリで取得
+- コメント一覧を `comments` と `users` の JOIN で直接取得
+- 一覧用の `make_posts()` を通さず、単票表示用にその場で `post` 構造を組み立てる
+
+一覧表示と単票表示では必要なデータ量と組み立て方が異なるため、
+単票表示だけ専用経路に分けることで
+余計な汎用処理を減らした。
+
+確認は以下の手順で行った。
+
+```sh
+php -l php/index.php
+docker compose up -d --build app nginx
+curl http://127.0.0.1:8080/initialize
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更により benchmarker は `pass: true` を維持しつつ、
+スコアは `13412` から `14361` へ改善した。

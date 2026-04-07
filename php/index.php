@@ -463,17 +463,74 @@ $app->get('/posts', function (Request $request, Response $response) {
 
 $app->get('/posts/{id}', function (Request $request, Response $response, $args) {
     $db = $this->get('db');
-    $ps = $db->prepare('SELECT * FROM `posts` WHERE `id` = ?');
+    $ps = $db->prepare('
+        SELECT p.id, p.user_id, p.body, p.mime, p.created_at,
+               u.account_name AS user_account_name,
+               u.authority AS user_authority,
+               u.del_flg AS user_del_flg,
+               u.created_at AS user_created_at
+        FROM `posts` p
+        INNER JOIN `users` u ON u.id = p.user_id
+        WHERE p.id = ? AND u.del_flg = 0
+    ');
     $ps->execute([$args['id']]);
-    $results = $ps->fetchAll(PDO::FETCH_ASSOC);
-    $posts = $this->get('helper')->make_posts($results, ['all_comments' => true]);
+    $row = $ps->fetch(PDO::FETCH_ASSOC);
+    $ps->closeCursor();
 
-    if (empty($posts)) {
+    if ($row === false) {
         $response->getBody()->write('404');
         return $response->withStatus(404);
     }
 
-    $post = $posts[0];
+    $post = [
+        'id' => $row['id'],
+        'user_id' => $row['user_id'],
+        'body' => $row['body'],
+        'mime' => $row['mime'],
+        'created_at' => $row['created_at'],
+        'user' => [
+            'id' => $row['user_id'],
+            'account_name' => $row['user_account_name'],
+            'authority' => $row['user_authority'],
+            'del_flg' => $row['user_del_flg'],
+            'created_at' => $row['user_created_at'],
+        ],
+    ];
+
+    $ps = $db->prepare('SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?');
+    $ps->execute([$args['id']]);
+    $post['comment_count'] = (int)$ps->fetch(PDO::FETCH_ASSOC)['count'];
+    $ps->closeCursor();
+
+    $ps = $db->prepare('
+        SELECT c.id, c.post_id, c.user_id, c.comment, c.created_at,
+               u.account_name AS user_account_name,
+               u.authority AS user_authority,
+               u.del_flg AS user_del_flg,
+               u.created_at AS user_created_at
+        FROM `comments` c
+        INNER JOIN `users` u ON u.id = c.user_id
+        WHERE c.post_id = ?
+        ORDER BY c.created_at ASC, c.id ASC
+    ');
+    $ps->execute([$args['id']]);
+    $post['comments'] = array_map(function ($comment) {
+        $comment['user'] = [
+            'id' => $comment['user_id'],
+            'account_name' => $comment['user_account_name'],
+            'authority' => $comment['user_authority'],
+            'del_flg' => $comment['user_del_flg'],
+            'created_at' => $comment['user_created_at'],
+        ];
+        unset(
+            $comment['user_account_name'],
+            $comment['user_authority'],
+            $comment['user_del_flg'],
+            $comment['user_created_at']
+        );
+        return $comment;
+    }, $ps->fetchAll(PDO::FETCH_ASSOC));
+    $ps->closeCursor();
 
     $me = $this->get('helper')->get_session_user();
 
