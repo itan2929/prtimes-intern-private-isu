@@ -303,10 +303,10 @@ $app->post('/login', function (Request $request, Response $response) {
         ];
         $_SESSION['csrf_token'] = bin2hex(random_bytes(16));
         return redirect($response, '/', 302);
-    } else {
-        $this->get('flash')->addMessage('notice', 'アカウント名かパスワードが間違っています');
-        return redirect($response, '/login', 302);
     }
+
+    $this->get('flash')->addMessage('notice', 'アカウント名かパスワードが間違っています');
+    return redirect($response, '/login', 302);
 });
 
 $app->get('/register', function (Request $request, Response $response) {
