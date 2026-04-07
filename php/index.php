@@ -39,8 +39,13 @@ session_start();
 // dependency
 $container = new Container();
 $container->set('settings', function() {
+    [$memcached_host, $memcached_port] = array_pad(explode(':', $GLOBALS['memd_addr'] ?? '127.0.0.1:11211', 2), 2, null);
     return [
         'image_cache_dir' => sys_get_temp_dir() . '/isuconp-image',
+        'memcached' => [
+            'host' => $memcached_host ?: '127.0.0.1',
+            'port' => (int)($memcached_port ?: 11211),
+        ],
         'db' => [
             'host' => $_SERVER['ISUCONP_DB_HOST'] ?? 'localhost',
             'port' => $_SERVER['ISUCONP_DB_PORT'] ?? 3306,
@@ -57,6 +62,12 @@ $container->set('db', function ($c) {
         $config['db']['username'],
         $config['db']['password']
     );
+});
+$container->set('memcached', function ($c) {
+    $config = $c->get('settings')['memcached'];
+    $memcached = new Memcached();
+    $memcached->addServer($config['host'], $config['port']);
+    return $memcached;
 });
 
 $container->set('view', function ($c) {
@@ -75,11 +86,16 @@ $container->set('flash', function () {
 $container->set('helper', function ($c) {
     return new class($c) {
         public PDO $db;
+        public Memcached $memcached;
         public string $image_cache_dir;
+        public int $cache_version;
+        public int $user_cache_ttl = 3600;
 
         public function __construct($c) {
             $this->db = $c->get('db');
+            $this->memcached = $c->get('memcached');
             $this->image_cache_dir = $c->get('settings')['image_cache_dir'];
+            $this->cache_version = $this->load_cache_version();
         }
 
         public function db() {
@@ -99,6 +115,35 @@ $container->set('helper', function ($c) {
             }
 
             $this->clear_image_cache();
+            $this->bump_cache_version();
+        }
+
+        public function load_cache_version(): int {
+            $version = $this->memcached->get('isuconp:cache_version');
+            if ($version === false) {
+                $this->memcached->add('isuconp:cache_version', 1);
+                return 1;
+            }
+
+            return (int)$version;
+        }
+
+        public function bump_cache_version(): void {
+            $version = $this->memcached->increment('isuconp:cache_version', 1, 1);
+            if ($version === false) {
+                $this->cache_version = $this->load_cache_version();
+                return;
+            }
+
+            $this->cache_version = (int)$version;
+        }
+
+        public function user_cache_key_by_id(int $id): string {
+            return "isuconp:v{$this->cache_version}:user:id:{$id}";
+        }
+
+        public function user_cache_key_by_account_name(string $account_name): string {
+            return "isuconp:v{$this->cache_version}:user:account_name:{$account_name}";
         }
 
         public function image_path(int $post_id, string $mime): string {
@@ -160,8 +205,49 @@ $container->set('helper', function ($c) {
             return $result;
         }
 
-        public function try_login($account_name, $password) {
+        public function cache_user(array $user): void {
+            $user = array_filter($user, 'is_string', ARRAY_FILTER_USE_KEY);
+            $this->memcached->setMulti([
+                $this->user_cache_key_by_id((int)$user['id']) => $user,
+                $this->user_cache_key_by_account_name($user['account_name']) => $user,
+            ], $this->user_cache_ttl);
+        }
+
+        public function fetch_user_by_account_name(string $account_name) {
+            $cached = $this->memcached->get($this->user_cache_key_by_account_name($account_name));
+            if (is_array($cached)) {
+                return $cached;
+            }
+
             $user = $this->fetch_first('SELECT * FROM users WHERE account_name = ? AND del_flg = 0', $account_name);
+            if ($user !== false) {
+                $this->cache_user($user);
+            }
+            return $user;
+        }
+
+        public function fetch_user_by_id(int $id) {
+            $cached = $this->memcached->get($this->user_cache_key_by_id($id));
+            if (is_array($cached)) {
+                return $cached;
+            }
+
+            $user = $this->fetch_first('SELECT * FROM `users` WHERE `id` = ? AND `del_flg` = 0', $id);
+            if ($user !== false) {
+                $this->cache_user($user);
+            }
+            return $user;
+        }
+
+        public function delete_user_cache(int $id, string $account_name): void {
+            $this->memcached->deleteMulti([
+                $this->user_cache_key_by_id($id),
+                $this->user_cache_key_by_account_name($account_name),
+            ]);
+        }
+
+        public function try_login($account_name, $password) {
+            $user = $this->fetch_user_by_account_name($account_name);
             if ($user !== false && calculate_passhash($user['account_name'], $password) === $user['passhash']) {
                 return $user;
             }
@@ -173,7 +259,7 @@ $container->set('helper', function ($c) {
                 return null;
             }
 
-            $user = $this->fetch_first('SELECT * FROM `users` WHERE `id` = ?', $_SESSION['user']['id']);
+            $user = $this->fetch_user_by_id((int)$_SESSION['user']['id']);
 
             return $user === false ? null : $user;
         }
@@ -419,8 +505,10 @@ $app->post('/register', function (Request $request, Response $response) {
         $account_name,
         calculate_passhash($account_name, $password)
     ]);
+    $user_id = (int)$db->lastInsertId();
+    $this->get('helper')->delete_user_cache($user_id, $account_name);
     $_SESSION['user'] = [
-        'id' => $db->lastInsertId(),
+        'id' => $user_id,
     ];
     $_SESSION['csrf_token'] = bin2hex(random_bytes(16));
     return redirect($response, '/', 302);
@@ -711,10 +799,22 @@ $app->post('/admin/banned', function (Request $request, Response $response) {
     }
 
     $db = $this->get('db');
-    $query = 'UPDATE `users` SET `del_flg` = ? WHERE `id` = ?';
-    foreach ($params['uid'] as $id) {
-        $ps = $db->prepare($query);
-        $ps->execute([1, $id]);
+    $ids = array_values(array_unique(array_map('intval', (array)($params['uid'] ?? []))));
+    if (empty($ids)) {
+        return redirect($response, '/admin/banned', 302);
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+
+    $ps = $db->prepare('SELECT `id`, `account_name` FROM `users` WHERE `id` IN (' . $placeholders . ')');
+    $ps->execute($ids);
+    $users = $ps->fetchAll(PDO::FETCH_ASSOC);
+
+    $ps = $db->prepare('UPDATE `users` SET `del_flg` = ? WHERE `id` IN (' . $placeholders . ')');
+    $ps->execute(array_merge([1], $ids));
+
+    foreach ($users as $user) {
+        $this->get('helper')->delete_user_cache((int)$user['id'], $user['account_name']);
     }
 
     return redirect($response, '/admin/banned', 302);
@@ -722,7 +822,7 @@ $app->post('/admin/banned', function (Request $request, Response $response) {
 
 $app->get('/@{account_name}', function (Request $request, Response $response, $args) {
     $db = $this->get('db');
-    $user = $this->get('helper')->fetch_first('SELECT * FROM `users` WHERE `account_name` = ? AND `del_flg` = 0', $args['account_name']);
+    $user = $this->get('helper')->fetch_user_by_account_name($args['account_name']);
 
     if ($user === false) {
         $response->getBody()->write('404');

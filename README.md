@@ -310,3 +310,36 @@ cd ../benchmarker
 
 この変更では benchmarker を 3 回実施して比較し、
 最高スコアは `14530` を確認した。
+
+### 12. user lookup の memcached キャッシュ (perf/user-lookup-cache)
+
+セッションユーザー取得やログイン判定、
+`/@account_name` でのユーザー解決では、
+同じユーザー情報を何度も DB から読み直していた。
+
+そこで、ユーザー情報だけを小さく memcached に載せるようにした。
+
+この処理を以下のように変更した。
+
+- `get_session_user()` を user id ベースの memcached キャッシュ経由に変更
+- `try_login()` と `@account_name` のユーザー解決を account_name ベースの memcached キャッシュ経由に変更
+- `initialize` では cache namespace を切り替えるように変更
+- `register` と `admin/banned` では該当ユーザーの cache を invalidate するように変更
+
+以前、コメント情報まで memcached に載せる案は試したが、
+warming コストと get/set のオーバーヘッドが勝ってしまい悪化した。
+今回は対象を user lookup だけに絞ることで、
+低リスクな範囲で再挑戦した。
+
+確認は以下の手順で行った。
+
+```sh
+php -l php/index.php
+docker compose up -d --build app nginx
+curl http://127.0.0.1:8080/initialize
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更では benchmarker を 3 回実施して比較し、
+最高スコアは `14010` を確認した。
