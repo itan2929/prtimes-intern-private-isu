@@ -34,7 +34,15 @@ if (isset($_SERVER['ISUCONP_MEMCACHED_ADDRESS'])) {
 ini_set('session.save_handler', 'memcached');
 ini_set('session.save_path', $memd_addr);
 
-session_start();
+function ensure_session_started(): void {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+}
+
+function has_session_cookie(): bool {
+    return isset($_COOKIE[session_name()]);
+}
 
 // dependency
 $container = new Container();
@@ -255,6 +263,13 @@ $container->set('helper', function ($c) {
         }
 
         public function get_session_user() {
+            if (session_status() !== PHP_SESSION_ACTIVE) {
+                if (!has_session_cookie()) {
+                    return null;
+                }
+                ensure_session_started();
+            }
+
             if (!isset($_SESSION['user'], $_SESSION['user']['id'])) {
                 return null;
             }
@@ -486,6 +501,7 @@ $app->get('/login', function (Request $request, Response $response) {
     if ($this->get('helper')->get_session_user() !== null) {
         return redirect($response, '/', 302);
     }
+    ensure_session_started();
     return $this->get('view')->render($response, 'login.php', [
         'me' => null,
         'flash' => $this->get('flash')->getFirstMessage('notice'),
@@ -501,6 +517,7 @@ $app->post('/login', function (Request $request, Response $response) {
     $user = $this->get('helper')->try_login($params['account_name'], $params['password']);
 
     if ($user) {
+        ensure_session_started();
         $_SESSION['user'] = [
             'id' => $user['id'],
         ];
@@ -508,6 +525,7 @@ $app->post('/login', function (Request $request, Response $response) {
         return redirect($response, '/', 302);
     }
 
+    ensure_session_started();
     $this->get('flash')->addMessage('notice', 'アカウント名かパスワードが間違っています');
     return redirect($response, '/login', 302);
 });
@@ -516,6 +534,7 @@ $app->get('/register', function (Request $request, Response $response) {
     if ($this->get('helper')->get_session_user() !== null) {
         return redirect($response, '/', 302);
     }
+    ensure_session_started();
     return $this->get('view')->render($response, 'register.php', [
         'me' => null,
         'flash' => $this->get('flash')->getFirstMessage('notice'),
@@ -532,12 +551,14 @@ $app->post('/register', function (Request $request, Response $response) {
     $password = $params['password'];
 
     if (!validate_user($account_name, $password)) {
+        ensure_session_started();
         $this->get('flash')->addMessage('notice', 'アカウント名は3文字以上、パスワードは6文字以上である必要があります');
         return redirect($response, '/register', 302);
     }
 
     $user = $this->get('helper')->fetch_first('SELECT 1 FROM users WHERE `account_name` = ?', $account_name);
     if ($user) {
+        ensure_session_started();
         $this->get('flash')->addMessage('notice', 'アカウント名がすでに使われています');
         return redirect($response, '/register', 302);
     }
@@ -550,6 +571,7 @@ $app->post('/register', function (Request $request, Response $response) {
     ]);
     $user_id = (int)$db->lastInsertId();
     $this->get('helper')->delete_user_cache($user_id, $account_name);
+    ensure_session_started();
     $_SESSION['user'] = [
         'id' => $user_id,
     ];
@@ -558,13 +580,17 @@ $app->post('/register', function (Request $request, Response $response) {
 });
 
 $app->get('/logout', function (Request $request, Response $response) {
-    unset($_SESSION['user']);
-    unset($_SESSION['csrf_token']);
+    if (has_session_cookie()) {
+        ensure_session_started();
+        unset($_SESSION['user']);
+        unset($_SESSION['csrf_token']);
+    }
     return redirect($response, '/', 302);
 });
 
 $app->get('/', function (Request $request, Response $response) {
     $me = $this->get('helper')->get_session_user();
+    ensure_session_started();
 
     $db = $this->get('db');
     $ps = $db->prepare('
