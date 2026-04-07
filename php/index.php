@@ -246,9 +246,9 @@ function image_url($post) {
     $ext = '';
     if ($post['mime'] === 'image/jpeg') {
         $ext = '.jpg';
-    } else if ($post['mime'] === 'image/png') {
+    } elseif ($post['mime'] === 'image/png') {
         $ext = '.png';
-    } else if ($post['mime'] === 'image/gif') {
+    } elseif ($post['mime'] === 'image/gif') {
         $ext = '.gif';
     }
     return "/image/{$post['id']}{$ext}";
