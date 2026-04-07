@@ -89,6 +89,7 @@ $container->set('helper', function ($c) {
         public Memcached $memcached;
         public string $image_cache_dir;
         public int $cache_version;
+        public int $user_cache_ttl = 3600;
 
         public function __construct($c) {
             $this->db = $c->get('db');
@@ -128,7 +129,13 @@ $container->set('helper', function ($c) {
         }
 
         public function bump_cache_version(): void {
-            $this->cache_version = (int)$this->memcached->increment('isuconp:cache_version', 1, 1);
+            $version = $this->memcached->increment('isuconp:cache_version', 1, 1);
+            if ($version === false) {
+                $this->cache_version = $this->load_cache_version();
+                return;
+            }
+
+            $this->cache_version = (int)$version;
         }
 
         public function user_cache_key_by_id(int $id): string {
@@ -199,10 +206,11 @@ $container->set('helper', function ($c) {
         }
 
         public function cache_user(array $user): void {
+            $user = array_filter($user, 'is_string', ARRAY_FILTER_USE_KEY);
             $this->memcached->setMulti([
                 $this->user_cache_key_by_id((int)$user['id']) => $user,
                 $this->user_cache_key_by_account_name($user['account_name']) => $user,
-            ]);
+            ], $this->user_cache_ttl);
         }
 
         public function fetch_user_by_account_name(string $account_name) {
@@ -791,14 +799,22 @@ $app->post('/admin/banned', function (Request $request, Response $response) {
     }
 
     $db = $this->get('db');
-    $query = 'UPDATE `users` SET `del_flg` = ? WHERE `id` = ?';
-    foreach ($params['uid'] as $id) {
-        $user = $this->get('helper')->fetch_first('SELECT `id`, `account_name` FROM `users` WHERE `id` = ?', $id);
-        $ps = $db->prepare($query);
-        $ps->execute([1, $id]);
-        if ($user !== false) {
-            $this->get('helper')->delete_user_cache((int)$user['id'], $user['account_name']);
-        }
+    $ids = array_values(array_unique(array_map('intval', (array)($params['uid'] ?? []))));
+    if (empty($ids)) {
+        return redirect($response, '/admin/banned', 302);
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+
+    $ps = $db->prepare('SELECT `id`, `account_name` FROM `users` WHERE `id` IN (' . $placeholders . ')');
+    $ps->execute($ids);
+    $users = $ps->fetchAll(PDO::FETCH_ASSOC);
+
+    $ps = $db->prepare('UPDATE `users` SET `del_flg` = ? WHERE `id` IN (' . $placeholders . ')');
+    $ps->execute(array_merge([1], $ids));
+
+    foreach ($users as $user) {
+        $this->get('helper')->delete_user_cache((int)$user['id'], $user['account_name']);
     }
 
     return redirect($response, '/admin/banned', 302);
