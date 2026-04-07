@@ -319,7 +319,6 @@ $app->get('/register', function (Request $request, Response $response) {
     ]);
 });
 
-
 $app->post('/register', function (Request $request, Response $response) {
     if ($this->get('helper')->get_session_user() !== null) {
         return redirect($response, '/', 302);
