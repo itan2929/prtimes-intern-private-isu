@@ -23,6 +23,7 @@
       <span class="isu-comment-text"><?= escape_html($comment['comment']) ?></span>
     </div>
     <?php endforeach ?>
+    <?php if ($me !== null): ?>
     <div class="isu-comment-form">
       <form method="post" action="/comment">
         <input type="text" name="comment">
@@ -31,5 +32,6 @@
         <input type="submit" name="submit" value="submit">
       </form>
     </div>
+    <?php endif ?>
   </div>
 </div>
