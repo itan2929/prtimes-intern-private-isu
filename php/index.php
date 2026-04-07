@@ -218,12 +218,33 @@ $container->set('helper', function ($c) {
             }
             $ps->closeCursor();
 
-            // 4) comments 一括取得（DESCで取得して、最後に reverse で旧挙動へ）
-            $ps = $db->prepare("
-                SELECT * FROM `comments`
-                WHERE `post_id` IN ($postPh)
-                ORDER BY `post_id` ASC, `created_at` DESC
-            ");
+            // 4) comments 一括取得（一覧は各投稿の最新3件だけ取得）
+            $commentQuery = $all_comments
+                ? "
+                    SELECT * FROM `comments`
+                    WHERE `post_id` IN ($postPh)
+                    ORDER BY `post_id` ASC, `created_at` DESC, `id` DESC
+                "
+                : "
+                    SELECT `id`, `post_id`, `user_id`, `comment`, `created_at`
+                    FROM (
+                        SELECT
+                            `id`,
+                            `post_id`,
+                            `user_id`,
+                            `comment`,
+                            `created_at`,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY `post_id`
+                                ORDER BY `created_at` DESC, `id` DESC
+                            ) AS `comment_rank`
+                        FROM `comments`
+                        WHERE `post_id` IN ($postPh)
+                    ) AS ranked_comments
+                    WHERE `comment_rank` <= 3
+                    ORDER BY `post_id` ASC, `created_at` DESC, `id` DESC
+                ";
+            $ps = $db->prepare($commentQuery);
             $ps->execute($postIds);
             $fetchedComments = $ps->fetchAll(PDO::FETCH_ASSOC);
             $ps->closeCursor();
@@ -254,9 +275,6 @@ $container->set('helper', function ($c) {
             foreach ($selectedPosts as $post) {
                 $pid = (int)$post['id'];
                 $desc = $commentsDescByPost[$pid] ?? [];
-                if (!$all_comments) {
-                    $desc = array_slice($desc, 0, 3);
-                }
 
                 $post['comment_count'] = $commentCounts[$pid] ?? 0;
                 $post['comments'] = array_reverse($desc);
