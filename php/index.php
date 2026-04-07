@@ -40,6 +40,7 @@ session_start();
 $container = new Container();
 $container->set('settings', function() {
     return [
+        'image_cache_dir' => sys_get_temp_dir() . '/isuconp-image',
         'db' => [
             'host' => $_SERVER['ISUCONP_DB_HOST'] ?? 'localhost',
             'port' => $_SERVER['ISUCONP_DB_PORT'] ?? 3306,
@@ -74,9 +75,11 @@ $container->set('flash', function () {
 $container->set('helper', function ($c) {
     return new class($c) {
         public PDO $db;
+        public string $image_cache_dir;
 
         public function __construct($c) {
             $this->db = $c->get('db');
+            $this->image_cache_dir = $c->get('settings')['image_cache_dir'];
         }
 
         public function db() {
@@ -94,6 +97,42 @@ $container->set('helper', function ($c) {
             foreach($sql as $s) {
                 $db->query($s);
             }
+
+            $this->clear_image_cache();
+        }
+
+        public function image_path(int $post_id, string $mime): string {
+            $ext = match ($mime) {
+                'image/jpeg' => 'jpg',
+                'image/png' => 'png',
+                'image/gif' => 'gif',
+                default => '',
+            };
+
+            return $this->image_cache_dir . "/{$post_id}.{$ext}";
+        }
+
+        public function ensure_image_dir(): string {
+            $dir = $this->image_cache_dir;
+            if (!is_dir($dir)) {
+                mkdir($dir, 0777, true);
+            }
+
+            return $dir;
+        }
+
+        public function clear_image_cache() {
+            $dir = $this->ensure_image_dir();
+            foreach (glob($dir . '/*') ?: [] as $path) {
+                if (is_file($path)) {
+                    unlink($path);
+                }
+            }
+        }
+
+        public function save_post_image(int $post_id, string $mime, string $imgdata) {
+            $this->ensure_image_dir();
+            file_put_contents($this->image_path($post_id, $mime), $imgdata);
         }
 
         public function fetch_first($query, ...$params) {
@@ -454,7 +493,13 @@ $app->post('/', function (Request $request, Response $response) {
         return redirect($response, '/', 302);
     }
 
-    if (strlen(file_get_contents($_FILES['file']['tmp_name'])) > UPLOAD_LIMIT) {
+    $imgdata = file_get_contents($_FILES['file']['tmp_name']);
+    if ($imgdata === false) {
+        $this->get('flash')->addMessage('notice', '画像の読み込みに失敗しました');
+        return redirect($response, '/', 302);
+    }
+
+    if (strlen($imgdata) > UPLOAD_LIMIT) {
         $this->get('flash')->addMessage('notice', 'ファイルサイズが大きすぎます');
         return redirect($response, '/', 302);
     }
@@ -465,10 +510,11 @@ $app->post('/', function (Request $request, Response $response) {
     $ps->execute([
       $me['id'],
       $mime,
-      file_get_contents($_FILES['file']['tmp_name']),
+      $imgdata,
       $params['body'],
     ]);
     $pid = $db->lastInsertId();
+    $this->get('helper')->save_post_image((int)$pid, $mime, $imgdata);
     return redirect($response, "/posts/{$pid}", 302);
 });
 
@@ -477,13 +523,29 @@ $app->get('/image/{id}.{ext}', function (Request $request, Response $response, $
         return $response;
     }
 
-    $post = $this->get('helper')->fetch_first('SELECT * FROM `posts` WHERE `id` = ?', $args['id']);
+    $mime = match ($args['ext']) {
+        'jpg' => 'image/jpeg',
+        'png' => 'image/png',
+        'gif' => 'image/gif',
+        default => null,
+    };
+    if ($mime === null) {
+        $response->getBody()->write('404');
+        return $response->withStatus(404);
+    }
 
-    if (($args['ext'] === 'jpg' && $post['mime'] === 'image/jpeg') ||
-        ($args['ext'] === 'png' && $post['mime'] === 'image/png') ||
-        ($args['ext'] === 'gif' && $post['mime'] === 'image/gif')) {
+    $helper = $this->get('helper');
+    $image_path = $helper->image_path((int)$args['id'], $mime);
+    if (is_file($image_path)) {
+        $response->getBody()->write(file_get_contents($image_path));
+        return $response->withHeader('Content-Type', $mime);
+    }
+
+    $post = $helper->fetch_first('SELECT `mime`, `imgdata` FROM `posts` WHERE `id` = ?', $args['id']);
+    if ($post !== false && $post['mime'] === $mime) {
+        $helper->save_post_image((int)$args['id'], $mime, $post['imgdata']);
         $response->getBody()->write($post['imgdata']);
-        return $response->withHeader('Content-Type', $post['mime']);
+        return $response->withHeader('Content-Type', $mime);
     }
     $response->getBody()->write('404');
     return $response->withStatus(404);
