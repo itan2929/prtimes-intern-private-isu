@@ -131,8 +131,11 @@ $container->set('helper', function ($c) {
         }
 
         public function save_post_image(int $post_id, string $mime, string $imgdata) {
-            $this->ensure_image_dir();
-            file_put_contents($this->image_path($post_id, $mime), $imgdata);
+            $dir = $this->ensure_image_dir();
+            $path = $this->image_path($post_id, $mime);
+            $tmp = tempnam($dir, 'img-');
+            file_put_contents($tmp, $imgdata);
+            rename($tmp, $path);
         }
 
         public function fetch_first($query, ...$params) {
