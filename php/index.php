@@ -126,8 +126,45 @@ $container->set('helper', function ($c) {
                 $db->query($s);
             }
 
+            $this->ensure_runtime_indexes();
             $this->clear_image_cache();
             $this->bump_cache_version();
+        }
+
+        public function ensure_runtime_indexes(): void {
+            $this->ensure_index_exists(
+                'comments',
+                'idx_comments_post_created',
+                'ALTER TABLE comments ADD INDEX idx_comments_post_created (post_id, created_at DESC)'
+            );
+            $this->ensure_index_exists(
+                'comments',
+                'idx_comments_user',
+                'ALTER TABLE comments ADD INDEX idx_comments_user (user_id)'
+            );
+            $this->ensure_index_exists(
+                'posts',
+                'idx_posts_created',
+                'ALTER TABLE posts ADD INDEX idx_posts_created (created_at DESC)'
+            );
+        }
+
+        public function ensure_index_exists(string $table, string $index_name, string $ddl): void {
+            $ps = $this->db()->prepare('
+                SELECT COUNT(*)
+                FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                  AND table_name = ?
+                  AND index_name = ?
+            ');
+            $ps->execute([$table, $index_name]);
+            $exists = (int)$ps->fetchColumn() > 0;
+            $ps->closeCursor();
+            if ($exists) {
+                return;
+            }
+
+            $this->db()->exec($ddl);
         }
 
         public function load_cache_version(): int {
