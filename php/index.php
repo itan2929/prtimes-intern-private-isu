@@ -598,13 +598,14 @@ $app->get('/initialize', function (Request $request, Response $response) {
 });
 
 $app->get('/login', function (Request $request, Response $response) {
-    $me = has_session_cookie() ? $this->get('helper')->get_session_user() : null;
+    $hasCookie = has_session_cookie();
+    $me = $hasCookie ? $this->get('helper')->get_session_user() : null;
     if ($me !== null) {
         return redirect($response, '/', 302);
     }
 
     $flash = null;
-    if (has_session_cookie()) {
+    if ($hasCookie) {
         ensure_session_started();
         $flash = $this->get('flash')->getFirstMessage('notice');
     }
@@ -638,13 +639,14 @@ $app->post('/login', function (Request $request, Response $response) {
 });
 
 $app->get('/register', function (Request $request, Response $response) {
-    $me = has_session_cookie() ? $this->get('helper')->get_session_user() : null;
+    $hasCookie = has_session_cookie();
+    $me = $hasCookie ? $this->get('helper')->get_session_user() : null;
     if ($me !== null) {
         return redirect($response, '/', 302);
     }
 
     $flash = null;
-    if (has_session_cookie()) {
+    if ($hasCookie) {
         ensure_session_started();
         $flash = $this->get('flash')->getFirstMessage('notice');
     }
