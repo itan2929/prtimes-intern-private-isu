@@ -49,7 +49,7 @@ $container = new Container();
 $container->set('settings', function() {
     [$memcached_host, $memcached_port] = array_pad(explode(':', $GLOBALS['memd_addr'] ?? '127.0.0.1:11211', 2), 2, null);
     return [
-        'image_cache_dir' => sys_get_temp_dir() . '/isuconp-image',
+        'image_cache_dir' => '/home/public/image',
         'memcached' => [
             'host' => $memcached_host ?: '127.0.0.1',
             'port' => (int)($memcached_port ?: 11211),
@@ -205,7 +205,10 @@ $container->set('helper', function ($c) {
 
             if (!rename($tmp, $path) && is_file($tmp)) {
                 unlink($tmp);
+                return;
             }
+
+            chmod($path, 0644);
         }
 
         public function fetch_first($query, ...$params) {

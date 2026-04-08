@@ -23,3 +23,6 @@ WORKDIR /var/www/html
 RUN composer install --no-dev
 
 COPY . /var/www/html
+RUN chmod +x /var/www/html/docker-entrypoint.sh
+ENTRYPOINT ["/var/www/html/docker-entrypoint.sh"]
+CMD ["php-fpm"]
