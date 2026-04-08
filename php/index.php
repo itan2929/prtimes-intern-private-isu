@@ -71,6 +71,7 @@ $container->set('db', function ($c) {
         $config['db']['password'],
         [
             PDO::ATTR_PERSISTENT => true,
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         ]
     );
 });
@@ -103,6 +104,7 @@ $container->set('helper', function ($c) {
         public PDO $db;
         public Memcached $memcached;
         public string $image_cache_dir;
+        public array $db_config;
         public int $cache_version;
         public int $user_cache_ttl = 3600;
 
@@ -110,6 +112,7 @@ $container->set('helper', function ($c) {
             $this->db = $c->get('db');
             $this->memcached = $c->get('memcached');
             $this->image_cache_dir = $c->get('settings')['image_cache_dir'];
+            $this->db_config = $c->get('settings')['db'];
             $this->cache_version = $this->load_cache_version();
         }
 
@@ -163,29 +166,30 @@ $container->set('helper', function ($c) {
         }
 
         public function ensure_index_definition(string $table, string $index_name, array $definition, string $ddl): void {
+            $db = $this->new_admin_db();
             $lock_name = "isuconp:index:{$table}:{$index_name}";
-            if (!$this->acquire_index_lock($lock_name)) {
+            if (!$this->acquire_index_lock($db, $lock_name)) {
                 throw new RuntimeException("failed to acquire index lock for {$index_name}");
             }
 
             try {
-                $current = $this->load_index_definition($table, $index_name);
+                $current = $this->load_index_definition($db, $table, $index_name);
                 if ($current === $definition) {
                     return;
                 }
 
                 if ($current !== []) {
-                    $this->run_ddl("ALTER TABLE `{$table}` DROP INDEX `{$index_name}`");
+                    $this->run_ddl($db, "ALTER TABLE `{$table}` DROP INDEX `{$index_name}`");
                 }
 
-                $this->run_ddl($ddl);
+                $this->run_ddl($db, $ddl);
             } finally {
-                $this->release_index_lock($lock_name);
+                $this->release_index_lock($db, $lock_name);
             }
         }
 
-        public function load_index_definition(string $table, string $index_name): array {
-            $ps = $this->db()->prepare('
+        public function load_index_definition(PDO $db, string $table, string $index_name): array {
+            $ps = $db->prepare('
                 SELECT column_name, collation
                 FROM information_schema.statistics
                 WHERE table_schema = DATABASE()
@@ -202,28 +206,40 @@ $container->set('helper', function ($c) {
             }, $rows);
         }
 
-        public function run_ddl(string $ddl): void {
-            $result = $this->db()->exec($ddl);
+        public function run_ddl(PDO $db, string $ddl): void {
+            $result = $db->exec($ddl);
             if ($result !== false) {
                 return;
             }
 
-            $error = $this->db()->errorInfo();
+            $error = $db->errorInfo();
             throw new RuntimeException($error[2] ?? "failed to execute ddl: {$ddl}");
         }
 
-        public function acquire_index_lock(string $lock_name): bool {
-            $ps = $this->db()->prepare('SELECT GET_LOCK(?, 10)');
+        public function acquire_index_lock(PDO $db, string $lock_name): bool {
+            $ps = $db->prepare('SELECT GET_LOCK(?, 10)');
             $ps->execute([$lock_name]);
             $locked = (int)$ps->fetchColumn() === 1;
             $ps->closeCursor();
             return $locked;
         }
 
-        public function release_index_lock(string $lock_name): void {
-            $ps = $this->db()->prepare('SELECT RELEASE_LOCK(?)');
+        public function release_index_lock(PDO $db, string $lock_name): void {
+            $ps = $db->prepare('SELECT RELEASE_LOCK(?)');
             $ps->execute([$lock_name]);
             $ps->closeCursor();
+        }
+
+        public function new_admin_db(): PDO {
+            return new PDO(
+                "mysql:dbname={$this->db_config['database']};host={$this->db_config['host']};port={$this->db_config['port']};charset=utf8mb4",
+                $this->db_config['username'],
+                $this->db_config['password'],
+                [
+                    PDO::ATTR_PERSISTENT => false,
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                ]
+            );
         }
 
         public function load_cache_version(): int {
