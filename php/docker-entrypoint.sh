@@ -2,6 +2,6 @@
 set -eu
 
 mkdir -p /home/public/image
-chown -R www-data:www-data /home/public
+chown www-data:www-data /home/public/image
 
 exec docker-php-entrypoint "$@"
