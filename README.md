@@ -661,3 +661,35 @@ cd ../benchmarker
 
 この変更では benchmarker を 3 回実施して比較し、
 最高スコアは `66181` を確認した。
+
+### 23. guest の `/login` `/register` では session を起こさない (perf/guest-auth-without-session-redux)
+
+未ログインユーザーが `/login` や `/register` を開くとき、
+fresh access でも毎回 session を開始しており、
+memcached session I/O と `Set-Cookie` が発生していた。
+
+この処理を以下のように変更した。
+
+- `GET /login` は session cookie があるときだけ session を開始し、flash を読む
+- `GET /register` も同様に、session cookie があるときだけ session を開始する
+
+これにより、
+初回アクセスの guest に対しては
+session を起こさずにログイン・登録画面を描画できるようになった。
+
+確認は以下の手順で行った。
+
+```sh
+php -l php/index.php
+docker compose up -d --build app nginx
+sleep 2
+curl http://127.0.0.1:8080/initialize
+sleep 1
+curl -I http://127.0.0.1:8080/login
+curl -I http://127.0.0.1:8080/register
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更では benchmarker を 3 回実施して比較し、
+最高スコアは `66825` を確認した。
