@@ -592,3 +592,42 @@ cd ../benchmarker
 
 この変更では benchmarker を 3 回実施して比較し、
 最高スコアは `40428` を確認した。
+
+### 21. `posts(created_at)` index を追加する (perf/posts-created-index-redux)
+
+画像配信を nginx 直配信に寄せた後は、
+トップページ `/` と無限スクロール `/posts` で使う `posts` の読み出しが
+相対的に重くなっていた。
+
+`EXPLAIN` を確認すると、
+
+- `SELECT ... FROM posts ... ORDER BY created_at DESC LIMIT 20`
+
+が `ALL + Using filesort` になっており、
+新しい投稿から 20 件だけ欲しいのに `posts` 全体を広く読んでいた。
+
+この処理を以下のように変更した。
+
+- `posts(created_at DESC)` の index `idx_posts_created` を追加
+
+これにより、
+タイムライン表示と無限スクロールの投稿取得が
+`created_at` 順の index scan で処理できるようになり、
+`posts` 全 scan と filesort を避けられた。
+
+確認は以下の手順で行った。
+
+```sh
+# 既存の mysql volume を使う場合は index を手動適用する
+docker compose exec -T mysql mysql -uroot -proot isuconp < sql/indexes.sql
+
+docker compose up -d --build app nginx
+sleep 2
+curl http://127.0.0.1:8080/initialize
+sleep 1
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更では benchmarker を 3 回実施して比較し、
+最高スコアは `64773` を確認した。
