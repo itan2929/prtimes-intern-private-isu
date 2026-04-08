@@ -593,7 +593,7 @@ cd ../benchmarker
 この変更では benchmarker を 3 回実施して比較し、
 最高スコアは `40428` を確認した。
 
-### 21. `posts(created_at)` index を追加する (perf/posts-created-index-redux)
+### 21. `posts(created_at DESC)` index を追加する (perf/posts-created-index-redux)
 
 画像配信を nginx 直配信に寄せた後は、
 トップページ `/` と無限スクロール `/posts` で使う `posts` の読み出しが
@@ -618,8 +618,9 @@ cd ../benchmarker
 確認は以下の手順で行った。
 
 ```sh
-# 既存の mysql volume を使う場合は index を手動適用する
-docker compose exec -T mysql mysql -uroot -proot isuconp < sql/indexes.sql
+# 既存の mysql volume を使う場合は新しい index だけを手動適用する
+docker compose exec -T mysql mysql -uroot -proot isuconp -e \
+  "ALTER TABLE posts ADD INDEX idx_posts_created (created_at DESC);"
 
 docker compose up -d --build app nginx
 sleep 2
