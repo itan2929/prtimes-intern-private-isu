@@ -126,8 +126,101 @@ $container->set('helper', function ($c) {
                 $db->query($s);
             }
 
+            $this->ensure_runtime_indexes();
             $this->clear_image_cache();
             $this->bump_cache_version();
+        }
+
+        public function ensure_runtime_indexes(): void {
+            $this->ensure_index_definition(
+                'comments',
+                'idx_comments_post_created',
+                [
+                    ['post_id', 'A'],
+                    ['created_at', 'D'],
+                ],
+                'ALTER TABLE comments ADD INDEX idx_comments_post_created (post_id, created_at DESC)'
+            );
+            $this->ensure_index_definition(
+                'comments',
+                'idx_comments_user',
+                [
+                    ['user_id', 'A'],
+                ],
+                'ALTER TABLE comments ADD INDEX idx_comments_user (user_id)'
+            );
+            $this->ensure_index_definition(
+                'posts',
+                'idx_posts_created',
+                [
+                    ['created_at', 'D'],
+                ],
+                'ALTER TABLE posts ADD INDEX idx_posts_created (created_at DESC)'
+            );
+        }
+
+        public function ensure_index_definition(string $table, string $index_name, array $definition, string $ddl): void {
+            $lock_name = "isuconp:index:{$table}:{$index_name}";
+            if (!$this->acquire_index_lock($lock_name)) {
+                throw new RuntimeException("failed to acquire index lock for {$index_name}");
+            }
+
+            try {
+                $current = $this->load_index_definition($table, $index_name);
+                if ($current === $definition) {
+                    return;
+                }
+
+                if ($current !== []) {
+                    $this->run_ddl("ALTER TABLE `{$table}` DROP INDEX `{$index_name}`");
+                }
+
+                $this->run_ddl($ddl);
+            } finally {
+                $this->release_index_lock($lock_name);
+            }
+        }
+
+        public function load_index_definition(string $table, string $index_name): array {
+            $ps = $this->db()->prepare('
+                SELECT column_name, collation
+                FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                  AND table_name = ?
+                  AND index_name = ?
+                ORDER BY seq_in_index ASC
+            ');
+            $ps->execute([$table, $index_name]);
+            $rows = $ps->fetchAll(PDO::FETCH_ASSOC);
+            $ps->closeCursor();
+
+            return array_map(static function (array $row): array {
+                return [$row['column_name'], $row['collation'] ?? 'A'];
+            }, $rows);
+        }
+
+        public function run_ddl(string $ddl): void {
+            $result = $this->db()->exec($ddl);
+            if ($result !== false) {
+                return;
+            }
+
+            $error = $this->db()->errorInfo();
+            throw new RuntimeException($error[2] ?? "failed to execute ddl: {$ddl}");
+        }
+
+        public function acquire_index_lock(string $lock_name): bool {
+            $ps = $this->db()->prepare('SELECT GET_LOCK(?, 10)');
+            $ps->execute([$lock_name]);
+            $locked = (int)$ps->fetchColumn() === 1;
+            $ps->closeCursor();
+            return $locked;
+        }
+
+        public function release_index_lock(string $lock_name): void {
+            $ps = $this->db()->prepare('SELECT RELEASE_LOCK(?)');
+            $ps->execute([$lock_name]);
+            $ps->closeCursor();
         }
 
         public function load_cache_version(): int {
