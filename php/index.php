@@ -84,6 +84,10 @@ $container->set('view', function ($c) {
             $data += ['view' => $template];
             return parent::render($response, 'layout.php', $data);
         }
+
+        public function render_partial(\Psr\Http\Message\ResponseInterface $response, string $template, array $data = []): ResponseInterface {
+            return parent::render($response, $template, $data);
+        }
     };
 });
 
@@ -624,6 +628,7 @@ $app->get('/', function (Request $request, Response $response) {
 $app->get('/posts', function (Request $request, Response $response) {
     $params = $request->getQueryParams();
     $max_created_at = $params['max_created_at'] ?? null;
+    $me = has_session_cookie() ? $this->get('helper')->get_session_user() : null;
     $db = $this->get('db');
     $ps = $db->prepare('
         SELECT p.id, p.user_id, p.body, p.mime, p.created_at,
@@ -643,7 +648,7 @@ $app->get('/posts', function (Request $request, Response $response) {
     $results = $ps->fetchAll(PDO::FETCH_ASSOC);
     $posts = $this->get('helper')->make_posts($results);
 
-    return $this->get('view')->render($response, 'posts.php', ['posts' => $posts]);
+    return $this->get('view')->render_partial($response, 'posts.php', ['posts' => $posts, 'me' => $me]);
 });
 
 $app->get('/posts/{id}', function (Request $request, Response $response, $args) {
