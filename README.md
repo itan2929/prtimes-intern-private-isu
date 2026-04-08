@@ -557,3 +557,38 @@ cd ../benchmarker
 
 この変更では benchmarker を 3 回実施して比較し、
 最高スコアは `15499` を確認した。
+
+### 20. 画像 cache を shared public 配下へ移して nginx 直配信にする (perf/public-image-cache)
+
+これまでは、
+画像 cache を app コンテナ内の一時領域に置いていたため、
+cache hit でも `/image/{id}.{ext}` は PHP を通って `file_get_contents()` していた。
+
+この処理を以下のように変更した。
+
+- 画像 cache の保存先を `/home/public/image` に変更
+- app 起動時に entrypoint で `public/image` を作成し、PHP から書き込める権限を付与
+- cache 保存後に file mode を `0644` に揃え、nginx がそのまま配信できるよう変更
+- 生成された `public/image` は runtime artifact として `.gitignore` に追加
+
+これにより、
+1 回目の画像取得で cache が生成されれば、
+2 回目以降は nginx の `try_files` だけで画像を返せるようになり、
+高頻度な `/image` アクセスを PHP から外せた。
+
+確認は以下の手順で行った。
+
+```sh
+php -l php/index.php
+docker compose up -d --build app nginx
+sleep 2
+curl http://127.0.0.1:8080/initialize
+sleep 1
+curl -I http://127.0.0.1:8080/image/1.jpg
+curl -I http://127.0.0.1:8080/image/1.jpg
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更では benchmarker を 3 回実施して比較し、
+最高スコアは `40428` を確認した。
