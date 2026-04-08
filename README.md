@@ -618,10 +618,6 @@ cd ../benchmarker
 確認は以下の手順で行った。
 
 ```sh
-# 既存の mysql volume を使う場合は新しい index だけを手動適用する
-docker compose exec -T mysql mysql -uroot -proot isuconp -e \
-  "ALTER TABLE posts ADD INDEX idx_posts_created (created_at DESC);"
-
 docker compose up -d --build app nginx
 sleep 2
 curl http://127.0.0.1:8080/initialize
@@ -632,3 +628,36 @@ cd ../benchmarker
 
 この変更では benchmarker を 3 回実施して比較し、
 最高スコアは `64773` を確認した。
+
+### 22. `initialize` 時に必要な index を自動適用する (perf/initialize-runtime-indexes)
+
+`posts(created_at DESC)` は有効だったが、
+そのままだと既存の mysql volume を使う環境では
+`initialize` 後に手動 `ALTER TABLE` を打つ必要があり、
+再現性が悪かった。
+
+この処理を以下のように変更した。
+
+- `GET /initialize` の中で、必要な index の存在を `information_schema.statistics` で確認
+- `idx_comments_post_created`, `idx_comments_user`, `idx_posts_created` が不足していれば自動作成
+
+これにより、
+ベンチ前に通常どおり `initialize` を叩くだけで、
+必要な index が揃った状態を自動で作れるようになった。
+
+確認は以下の手順で行った。
+
+```sh
+php -l php/index.php
+docker compose up -d --build app nginx
+sleep 2
+curl http://127.0.0.1:8080/initialize
+sleep 1
+docker compose exec -T mysql mysql -N -uroot -proot isuconp -e \
+  "SHOW INDEX FROM posts; SHOW INDEX FROM comments;"
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更では benchmarker を 3 回実施して比較し、
+最高スコアは `66181` を確認した。
