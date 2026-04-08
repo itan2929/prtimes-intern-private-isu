@@ -598,13 +598,21 @@ $app->get('/initialize', function (Request $request, Response $response) {
 });
 
 $app->get('/login', function (Request $request, Response $response) {
-    if ($this->get('helper')->get_session_user() !== null) {
+    $hasCookie = has_session_cookie();
+    $me = $hasCookie ? $this->get('helper')->get_session_user() : null;
+    if ($me !== null) {
         return redirect($response, '/', 302);
     }
-    ensure_session_started();
+
+    $flash = null;
+    if ($hasCookie) {
+        ensure_session_started();
+        $flash = $this->get('flash')->getFirstMessage('notice');
+    }
+
     return $this->get('view')->render($response, 'login.php', [
         'me' => null,
-        'flash' => $this->get('flash')->getFirstMessage('notice'),
+        'flash' => $flash,
     ]);
 });
 
@@ -631,13 +639,21 @@ $app->post('/login', function (Request $request, Response $response) {
 });
 
 $app->get('/register', function (Request $request, Response $response) {
-    if ($this->get('helper')->get_session_user() !== null) {
+    $hasCookie = has_session_cookie();
+    $me = $hasCookie ? $this->get('helper')->get_session_user() : null;
+    if ($me !== null) {
         return redirect($response, '/', 302);
     }
-    ensure_session_started();
+
+    $flash = null;
+    if ($hasCookie) {
+        ensure_session_started();
+        $flash = $this->get('flash')->getFirstMessage('notice');
+    }
+
     return $this->get('view')->render($response, 'register.php', [
         'me' => null,
-        'flash' => $this->get('flash')->getFirstMessage('notice'),
+        'flash' => $flash,
     ]);
 });
 
