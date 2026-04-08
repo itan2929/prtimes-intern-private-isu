@@ -693,3 +693,33 @@ cd ../benchmarker
 
 この変更では benchmarker を 3 回実施して比較し、
 最高スコアは `66825` を確認した。
+
+### 24. PDO の persistent connection を有効にする (perf/pdo-persistent)
+
+画像 cache と index の改善が進んだ後は、
+高頻度リクエストで毎回張られる MySQL 接続コストが
+相対的に無視しづらくなっていた。
+
+この処理を以下のように変更した。
+
+- `PDO` の生成時に `PDO::ATTR_PERSISTENT => true` を設定
+
+これにより、
+PHP-FPM ワーカーが再利用される間は
+MySQL 接続を persistent に保てるようになり、
+リクエストごとの接続確立コストを減らせるようになった。
+
+確認は以下の手順で行った。
+
+```sh
+php -l php/index.php
+docker compose up -d --build app nginx
+sleep 2
+curl http://127.0.0.1:8080/initialize
+sleep 1
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更では benchmarker を 3 回実施して比較し、
+最高スコアは `92222` を確認した。
