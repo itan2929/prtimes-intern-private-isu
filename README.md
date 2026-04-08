@@ -525,3 +525,35 @@ cd ../benchmarker
 
 この変更では benchmarker を 3 回実施して比較し、
 最高スコアは `15799` を確認した。
+
+### 19. 無限スクロール用 `/posts` を partial 応答にする (perf/posts-partial-response)
+
+`GET /posts` は無限スクロール用の追加読み込みに使われるが、
+従来は layout 付きの full HTML を描画してから、
+ブラウザ側で `.isu-post` 要素だけを抜き出していた。
+
+この処理を以下のように変更した。
+
+- view renderer に partial 描画メソッドを追加
+- `GET /posts` では layout を通さず `posts.php` だけを返すよう変更
+- comment form の表示条件を保つため、必要な `me` だけは route から渡すよう変更
+
+これにより、
+無限スクロール時の不要な header / script / layout 描画を避け、
+`/posts` 応答の組み立てコストを減らした。
+
+確認は以下の手順で行った。
+
+```sh
+php -l php/index.php
+docker compose up -d --build app nginx
+sleep 2
+curl http://127.0.0.1:8080/initialize
+sleep 1
+curl "http://127.0.0.1:8080/posts?max_created_at=2016-01-02T11:46:24+09:00"
+cd ../benchmarker
+./bin/benchmarker -t "http://127.0.0.1:8080" -u ./userdata
+```
+
+この変更では benchmarker を 3 回実施して比較し、
+最高スコアは `15499` を確認した。
